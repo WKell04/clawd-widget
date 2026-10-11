@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install / remove the Clawd widget integration for KDE Plasma 6 (Wayland).
-#   ./install.sh           install launcher, KWin rule and shortcut
+#   ./install.sh           install launcher, KWin rule, keyboard fix and shortcut
 #   ./install.sh --remove  undo everything
 set -euo pipefail
 
@@ -8,8 +8,8 @@ DIR="$(cd "$(dirname "$0")" && pwd)"
 APP_ID="clawd-widget"
 DESKTOP="$HOME/.local/share/applications/$APP_ID.desktop"
 SHORTCUT="Meta+Shift+F23"   # what the Copilot key usually sends
-# Qt key code for Meta+Shift+F23: Meta 0x10000000 + Shift 0x02000000 + F23 0x01000052
-SHORTCUT_CODE=$((0x10000000 + 0x02000000 + 0x01000052))
+# Qt key code for Meta+Shift+F23: Meta 0x10000000 + Shift 0x02000000 + F23 0x01000046
+SHORTCUT_CODE=$((0x10000000 + 0x02000000 + 0x01000046))
 
 # window size from clawd_widget.py, placed bottom right above the panel
 WIN_W=560
@@ -29,6 +29,18 @@ accel() { gdbus call --session --dest org.kde.kglobalaccel --object-path /kgloba
           --method "org.kde.KGlobalAccel.$1" "${@:2}" >/dev/null; }
 ACTION_ID="['$APP_ID.desktop', '_launch', 'Clawd', 'Clawd starten']"
 
+XKB="$HOME/.config/xkb"
+xkb_options_without_clawd() {
+    kreadconfig6 --file kxkbrc --group Layout --key Options | tr ',' '\n' | grep -vx "clawd:f23" | paste -sd, || true
+}
+set_xkb_options() {
+    if [[ -n "$1" ]]; then
+        kwriteconfig6 --file kxkbrc --group Layout --key Options "$1"
+    else
+        kwriteconfig6 --file kxkbrc --group Layout --key Options --delete
+    fi
+}
+
 remove_rule_from_list() {
     local rules
     rules="$(kreadconfig6 --file kwinrulesrc --group General --key rules)"
@@ -43,7 +55,10 @@ if [[ "${1:-}" == "--remove" ]]; then
     remove_rule_from_list
     delete_rule_group
     gdbus call --session --dest org.kde.KWin --object-path /KWin --method org.kde.KWin.reconfigure >/dev/null
-    echo "Clawd integration removed."
+    rm -f "$XKB/symbols/clawd"
+    grep -q "clawd:f23" "$XKB/rules/evdev" 2>/dev/null && rm -f "$XKB/rules/evdev"
+    set_xkb_options "$(xkb_options_without_clawd)"
+    echo "Clawd integration removed (log out and in again to reset the keyboard layout)."
     exit 0
 fi
 
@@ -80,8 +95,25 @@ kw --group General --key rules "$rules"
 kw --group General --key count "$(tr ',' '\n' <<<"$rules" | grep -c .)"
 gdbus call --session --dest org.kde.KWin --object-path /KWin --method org.kde.KWin.reconfigure >/dev/null
 
-# 3. global shortcut via kglobalaccel (flag 2 = set as active shortcut and save)
+# 3. keyboard: the Copilot key sends Meta+Shift+F23, but the default layout turns
+#    Shift+F23 into XF86Assistant (unknown to Qt). Keep it F23 on every level.
+mkdir -p "$XKB/symbols" "$XKB/rules"
+cat >"$XKB/symbols/clawd" <<'EOF'
+// Copilot key: keep F23 even with Shift held (instead of XF86Assistant)
+xkb_symbols "f23" {
+    key <FK23> { type = "ONE_LEVEL", symbols[Group1] = [ F23 ] };
+};
+EOF
+if [[ -f "$XKB/rules/evdev" ]] && ! grep -q "clawd:f23" "$XKB/rules/evdev"; then
+    echo "WARNING: $XKB/rules/evdev exists and is not ours, add the clawd:f23 option manually." >&2
+else
+    printf '! option = symbols\n  clawd:f23 = +clawd(f23)\n\n! include %%S/evdev\n' >"$XKB/rules/evdev"
+fi
+set_xkb_options "$(xkb_options_without_clawd | sed 's/.\+/&,/')clawd:f23"
+kwriteconfig6 --file kxkbrc --group Layout --key ResetOldOptions true
+
+# 4. global shortcut via kglobalaccel (flags 2|4 = set active, don't autoload a saved one)
 accel doRegister "$ACTION_ID"
-accel setShortcut "$ACTION_ID" "[$SHORTCUT_CODE]" 2
+accel setShortcut "$ACTION_ID" "[$SHORTCUT_CODE]" 6
 
 echo "Clawd installed: shortcut $SHORTCUT, window at $POS"

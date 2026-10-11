@@ -20,7 +20,7 @@ FEET_Y, CENTER_X, HEAD_Y = 246, 132, 80
 
 SPRITE_DPR = 1.1  # 288 px sprites -> ~262 logical px
 WIN_W, WIN_H = 560, 440
-WALK_IN = 94  # how far Clawd stops left of the right edge
+WALK_IN = 43  # how far Clawd stops left of the right edge (1 cm ~ 51 px here)
 ORANGE = QColor("#E8833A")
 WALK_FRAMES = 48  # three walk cycles while moving in (multiple of 16)
 
