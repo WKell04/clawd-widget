@@ -19,7 +19,9 @@ CODE_DIR="$HOME"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --remove) MODE=remove ;;
-        --code-dir) CODE_DIR="$(realpath -m "${2/#\~/$HOME}")"; shift ;;
+        --code-dir)
+            [[ $# -ge 2 && -n "$2" ]] || { echo "--code-dir braucht einen Ordner" >&2; exit 1; }
+            CODE_DIR="$(realpath -m "${2/#\~/$HOME}")"; shift ;;
         -h|--help) sed -n '2,5p' "$0"; exit 0 ;;
         *) echo "Unbekannte Option: $1" >&2; exit 1 ;;
     esac
@@ -28,6 +30,16 @@ done
 
 # ---------- helpers ----------
 kw() { kwriteconfig6 --file kwinrulesrc "$@"; }
+# quote one argument for a .desktop Exec line (Desktop Entry spec: escape " ` $ \
+# inside quotes, backslashes once more for the string layer, % as %%)
+desktop_quote() {
+    python3 -I -c '
+import sys
+s = sys.argv[1].replace("\\", "\\\\\\\\")
+for c in "\"`$":
+    s = s.replace(c, "\\\\" + c)
+print("\"" + s.replace("%", "%%") + "\"")' "$1"
+}
 accel() { gdbus call --session --dest org.kde.kglobalaccel --object-path /kglobalaccel \
           --method "org.kde.KGlobalAccel.$1" "${@:2}" >/dev/null; }
 kwin_reconfigure() {
@@ -112,7 +124,7 @@ cat >"$DESKTOP" <<EOF
 Type=Application
 Name=Clawd
 Comment=Claude Code, Claude Desktop oder Claude im Browser starten
-Exec=env "CLAWD_CODE_DIR=$CODE_DIR" $(command -v python3) "$DIR/clawd_widget.py"
+Exec=env $(desktop_quote "CLAWD_CODE_DIR=$CODE_DIR") $(desktop_quote "$(command -v python3)") $(desktop_quote "$DIR/clawd_widget.py")
 Icon=$DIR/assets/idle/0001.png
 StartupNotify=false
 Terminal=false
