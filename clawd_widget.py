@@ -6,20 +6,23 @@ from pathlib import Path
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, QUrl, QProcess
 from PySide6.QtGui import (QColor, QDesktopServices, QFont, QPainter, QPainterPath, QPen,
                            QPixmap, QRegion)
+from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QVBoxLayout, QWidget
 
 ASSETS = Path(__file__).resolve().parent / "assets"
 FPS = 24
 TIMEOUT_MS = 10_000
 CODE_DIR = Path.home() / "dev" / "projects"
+SOCKET_NAME = "clawd-widget"
 
 # Sprite geometry in source pixels (measured from the rendered frames)
 FEET_Y, CENTER_X, HEAD_Y = 246, 132, 80
 
 SPRITE_DPR = 1.1  # 288 px sprites -> ~262 logical px
-WIN_W, WIN_H = 470, 440
+WIN_W, WIN_H = 560, 440
+WALK_IN = 94  # how far Clawd stops left of the right edge
 ORANGE = QColor("#E8833A")
-WALK_FRAMES = 32  # two walk cycles while moving in
+WALK_FRAMES = 48  # three walk cycles while moving in (multiple of 16)
 
 
 def load(name):
@@ -97,16 +100,18 @@ class Clawd(QWidget):
         self.s = 1 / dpr  # source px -> logical px
         size = self.anim["idle"][0].width() * self.s
 
-        # final sprite position: bottom right of the window
-        self.end_x = WIN_W - size - 4
+        # final sprite position: WALK_IN px left of the window's right edge
+        self.end_x = WIN_W - size - WALK_IN
         self.sy = WIN_H - 14 - FEET_Y * self.s
         self.start_x = WIN_W
         self.sx = self.start_x
         self.sprite_size = size
 
         self.bubble = Bubble(self, self.pick)
+        # tail tip (bubble width - 28) points at the left side of Clawd's face
         cx = self.end_x + CENTER_X * self.s
-        self.bubble.move(int(cx - self.bubble.width() + 50),
+        tail_target = cx - 35
+        self.bubble.move(int(tail_target - (self.bubble.width() - 28)),
                          int(self.sy + HEAD_Y * self.s - self.bubble.height()))
         self.bubble.hide()
         self.bubble.installEventFilter(self)
@@ -197,7 +202,21 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("clawd-widget")
     app.setDesktopFileName("clawd-widget")
+
+    # second key press: tell the running Clawd to poof, then exit
+    sock = QLocalSocket()
+    sock.connectToServer(SOCKET_NAME)
+    if sock.waitForConnected(200):
+        sock.write(b"poof")
+        sock.waitForBytesWritten(200)
+        return
+
     w = Clawd()
+    QLocalServer.removeServer(SOCKET_NAME)  # clean up a stale socket after a crash
+    server = QLocalServer(w)
+    server.listen(SOCKET_NAME)
+    server.newConnection.connect(lambda: (server.nextPendingConnection(), w.start_poof()))
+
     w.show()
     w.activateWindow()
     sys.exit(app.exec())
