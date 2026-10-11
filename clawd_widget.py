@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Clawd desktop widget: walks in, asks what to start, then poofs and exits."""
+import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -12,7 +14,9 @@ from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QVBoxLayout, QW
 ASSETS = Path(__file__).resolve().parent / "assets"
 FPS = 24
 TIMEOUT_MS = 10_000
-CODE_DIR = Path.home() / "dev" / "projects"
+# folder Claude Code starts in (set by install.sh --code-dir)
+CODE_DIR = Path(os.environ.get("CLAWD_CODE_DIR", Path.home())).expanduser()
+DESKTOP_CMD = shutil.which("claude-desktop")
 SOCKET_NAME = "clawd-widget"
 
 # Sprite geometry in source pixels (measured from the rendered frames)
@@ -47,8 +51,9 @@ class Bubble(QWidget):
         title.setAlignment(Qt.AlignCenter)
         title.setStyleSheet("color:#1a1a1a;")
         lay.addWidget(title)
+        desktop_text = "Claude Desktop" if DESKTOP_CMD else "Claude Desktop – nicht installiert"
         for key, text, enabled in (("code", "Claude Code", True),
-                                   ("desktop", "Claude Desktop – nicht installiert", False),
+                                   ("desktop", desktop_text, bool(DESKTOP_CMD)),
                                    ("browser", "Claude im Browser", True)):
             b = QPushButton(text)
             b.setEnabled(enabled)
@@ -166,8 +171,11 @@ class Clawd(QWidget):
         if key == "code":
             CODE_DIR.mkdir(parents=True, exist_ok=True)
             # login shell so ~/.local/bin is on PATH; keep the shell open after claude exits
+            shell = os.environ.get("SHELL", "/bin/bash")
             QProcess.startDetached("konsole", ["--workdir", str(CODE_DIR), "-e",
-                                               "bash", "-lc", "claude; exec bash"])
+                                               shell, "-lc", f"claude; exec {shell}"])
+        elif key == "desktop" and DESKTOP_CMD:
+            QProcess.startDetached(DESKTOP_CMD, [])
         elif key == "browser":
             QDesktopServices.openUrl(QUrl("https://claude.ai"))
         self.start_poof()
