@@ -17,7 +17,9 @@ TIMEOUT_MS = 10_000
 # folder Claude Code starts in (set by install.sh --code-dir)
 CODE_DIR = Path(os.environ.get("CLAWD_CODE_DIR", Path.home())).expanduser()
 DESKTOP_CMD = shutil.which("claude-desktop")
-SOCKET_NAME = "clawd-widget"
+# private per-user socket (XDG_RUNTIME_DIR is only accessible by the user), not /tmp
+_RUNTIME = os.environ.get("XDG_RUNTIME_DIR")
+SOCKET_NAME = os.path.join(_RUNTIME, "clawd-widget.sock") if _RUNTIME else "clawd-widget"
 
 # Sprite geometry in source pixels (measured from the rendered frames)
 FEET_Y, CENTER_X, HEAD_Y = 246, 132, 80
@@ -222,6 +224,7 @@ def main():
     w = Clawd()
     QLocalServer.removeServer(SOCKET_NAME)  # clean up a stale socket after a crash
     server = QLocalServer(w)
+    server.setSocketOptions(QLocalServer.SocketOption.UserAccessOption)
     server.listen(SOCKET_NAME)
     server.newConnection.connect(lambda: (server.nextPendingConnection(), w.start_poof()))
 

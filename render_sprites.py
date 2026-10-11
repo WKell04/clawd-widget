@@ -56,6 +56,10 @@ def setup_render():
     r.film_transparent = True
     r.image_settings.file_format = "PNG"
     r.image_settings.color_mode = "RGBA"
+    # no metadata in the PNGs (Blender writes e.g. the absolute .blend path by default)
+    for prop in r.bl_rna.properties:
+        if prop.identifier.startswith("use_stamp"):
+            setattr(r, prop.identifier, False)
     views = [i.identifier for i in bpy.types.ColorManagedViewSettings.bl_rna
              .properties["view_transform"].enum_items]
     # "Standard" keeps the orange saturated (AgX would wash it out)
