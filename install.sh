@@ -51,6 +51,7 @@ remove_rule_from_list() {
 
 if [[ "${1:-}" == "--remove" ]]; then
     accel unregister "$APP_ID.desktop" "_launch" || true
+    kwriteconfig6 --file kglobalshortcutsrc --group services --group "$APP_ID.desktop" --key _launch --delete
     rm -f "$DESKTOP"
     remove_rule_from_list
     delete_rule_group
@@ -101,13 +102,14 @@ mkdir -p "$XKB/symbols" "$XKB/rules"
 cat >"$XKB/symbols/clawd" <<'EOF'
 // Copilot key: keep F23 even with Shift held (instead of XF86Assistant)
 xkb_symbols "f23" {
-    key <FK23> { type = "ONE_LEVEL", symbols[Group1] = [ F23 ] };
+    key <FK23> { symbols[Group1] = [ F23, F23 ] };
 };
 EOF
 if [[ -f "$XKB/rules/evdev" ]] && ! grep -q "clawd:f23" "$XKB/rules/evdev"; then
     echo "WARNING: $XKB/rules/evdev exists and is not ours, add the clawd:f23 option manually." >&2
 else
-    printf '! option = symbols\n  clawd:f23 = +clawd(f23)\n\n! include %%S/evdev\n' >"$XKB/rules/evdev"
+    # system rules first, so clawd(f23) comes after inet(evdev) and wins
+    printf '! include %%S/evdev\n\n! option = symbols\n  clawd:f23 = +clawd(f23)\n' >"$XKB/rules/evdev"
 fi
 set_xkb_options "$(xkb_options_without_clawd | sed 's/.\+/&,/')clawd:f23"
 kwriteconfig6 --file kxkbrc --group Layout --key ResetOldOptions true
@@ -115,5 +117,7 @@ kwriteconfig6 --file kxkbrc --group Layout --key ResetOldOptions true
 # 4. global shortcut via kglobalaccel (flags 2|4 = set active, don't autoload a saved one)
 accel doRegister "$ACTION_ID"
 accel setShortcut "$ACTION_ID" "[$SHORTCUT_CODE]" 6
+# also persist it; a shortcut set over DBus did not survive a re-login
+kwriteconfig6 --file kglobalshortcutsrc --group services --group "$APP_ID.desktop" --key _launch "$SHORTCUT"
 
 echo "Clawd installed: shortcut $SHORTCUT, window at $POS"
